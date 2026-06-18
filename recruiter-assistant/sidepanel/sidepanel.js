@@ -105,7 +105,16 @@ function bindMessageListener() {
 
 function startReminderCheck() {
   updatePendingReminderBadge();
-  setInterval(updatePendingReminderBadge, 60000);
+  setInterval(() => {
+    updatePendingReminderBadge();
+    const remindersPane = document.querySelector('[data-pane="reminders"]');
+    if (remindersPane && remindersPane.classList.contains('active')) {
+      renderReminders();
+    }
+    if (currentCandidateId) {
+      renderCandidateDetail(currentCandidateId);
+    }
+  }, 60000);
 }
 
 async function updatePendingReminderBadge() {
@@ -720,7 +729,7 @@ async function saveCandidate() {
         let reason = '';
         if (newStatus === 'rejected' && data.rejectReason) {
           reason = data.rejectReason;
-        } else if (newStatus === 'advanced' || newStatus === 'interviewing' || newStatus === 'offered' || newStatus === 'hired') {
+        } else if (['phone_screen', 'interviewing', 'offered', 'hired'].includes(newStatus)) {
           if (data.advanceReason) reason = data.advanceReason;
         }
         data.statusHistory.push({
@@ -748,7 +757,7 @@ async function saveCandidate() {
       const statusMap = { new: '新候选人', phone_screen: '电话筛选中', interviewing: '面试中', offered: '已发offer', rejected: '已淘汰', hired: '已录用' };
       let reason = '';
       if (newStatus === 'rejected' && data.rejectReason) reason = data.rejectReason;
-      else if (data.advanceReason) reason = data.advanceReason;
+      else if (['phone_screen', 'interviewing', 'offered', 'hired'].includes(newStatus) && data.advanceReason) reason = data.advanceReason;
       data.statusHistory.push({
         from: 'new',
         to: newStatus,
@@ -1008,9 +1017,22 @@ async function handleDeleteInterview(id) {
 async function renderReminders() {
   const reminders = await getReminders();
   const candidates = await getCandidates();
+  const now = new Date();
 
-  const pending = reminders.filter(r => !r.completed && new Date(r.scheduledTime) <= new Date());
-  const upcoming = reminders.filter(r => !r.completed && new Date(r.scheduledTime) > new Date());
+  function isPending(r) {
+    if (r.completed) return false;
+    const scheduled = new Date(r.scheduledTime);
+    if (scheduled <= now) return true;
+    const earlyMinutes = parseInt(r.earlyReminder || '0');
+    if (earlyMinutes > 0) {
+      const earlyTime = new Date(scheduled.getTime() - earlyMinutes * 60000);
+      if (earlyTime <= now) return true;
+    }
+    return false;
+  }
+
+  const pending = reminders.filter(r => isPending(r));
+  const upcoming = reminders.filter(r => !r.completed && !isPending(r));
   const completed = reminders.filter(r => r.completed);
 
   const pendingSorted = [...pending].sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime));
@@ -1034,15 +1056,20 @@ async function renderReminders() {
 
   list.innerHTML = allSorted.map(r => {
     const cand = candidates.find(c => c.id === r.candidateId);
-    const isPast = new Date(r.scheduledTime) <= new Date();
-    const overdue = !r.completed && isPast;
+    const pending = isPending(r);
+    const isPast = new Date(r.scheduledTime) <= now;
     const typeText = REMINDER_TYPE_MAP[r.type] || r.type;
 
     let statusBadge = '';
+    let statusText = '';
     if (r.completed) {
       statusBadge = '<span class="badge badge-info">已完成</span>';
-    } else if (overdue) {
+    } else if (pending && !isPast) {
+      statusBadge = '<span class="badge badge-warning">提前提醒</span>';
+      statusText = ' (提前提醒中)';
+    } else if (pending && isPast) {
       statusBadge = '<span class="badge badge-rejected">待处理</span>';
+      statusText = ' (已过期)';
     } else {
       statusBadge = '<span class="badge badge-new">未到期</span>';
     }
@@ -1056,14 +1083,14 @@ async function renderReminders() {
       </div>` : '';
 
     return `
-      <li class="card ${overdue ? 'card-overdue' : ''} ${r.completed ? 'card-completed' : ''}">
+      <li class="card ${pending ? 'card-overdue' : ''} ${r.completed ? 'card-completed' : ''}">
         <div class="card-header">
           <div class="card-title">${escapeHtml(cand?.name || r.candidateName || '未知候选人')}</div>
           ${statusBadge}
-          <span class="badge ${overdue ? 'badge-rejected' : ''}" style="font-size:11px;">${typeText}</span>
+          <span class="badge" style="font-size:11px; background:#F3F4F6; color:#6B7280;">${typeText}</span>
         </div>
         <div class="card-body">
-          <span class="card-meta ${overdue ? 'text-danger' : ''}">📅 ${formatDateTime(r.scheduledTime)}${overdue ? ' (已过期)' : ''}</span>
+          <span class="card-meta ${pending ? 'text-danger' : ''}">📅 ${formatDateTime(r.scheduledTime)}${statusText}</span>
         </div>
         ${r.note ? `<div class="card-snippet">${escapeHtml(r.note.substring(0, 80))}</div>` : ''}
         ${snoozeButtons}
@@ -1237,6 +1264,7 @@ async function renderCandidateDetail(candidateId) {
   const positions = await getPositions();
   const interviews = await getInterviews();
   const reminders = await getReminders();
+  const now = new Date();
   
   const candidate = candidates.find(c => c.id === candidateId);
   if (!candidate) return;
@@ -1255,7 +1283,19 @@ async function renderCandidateDetail(candidateId) {
       return new Date(a.scheduledTime) - new Date(b.scheduledTime);
     });
   
-  const pendingReminders = candidateReminders.filter(r => !r.completed);
+  function isReminderPending(r) {
+    if (r.completed) return false;
+    const scheduled = new Date(r.scheduledTime);
+    if (scheduled <= now) return true;
+    const earlyMinutes = parseInt(r.earlyReminder || '0');
+    if (earlyMinutes > 0) {
+      const earlyTime = new Date(scheduled.getTime() - earlyMinutes * 60000);
+      if (earlyTime <= now) return true;
+    }
+    return false;
+  }
+  
+  const pendingReminders = candidateReminders.filter(r => isReminderPending(r));
   const completedReminders = candidateReminders.filter(r => r.completed);
   
   const skillsHtml = (candidate.skills || []).map(s =>
@@ -1299,8 +1339,8 @@ async function renderCandidateDetail(candidateId) {
   }).join('') : '<div class="detail-note">暂无面试记录</div>';
   
   const pendingRemindersHtml = pendingReminders.length > 0 ? pendingReminders.map(r => {
-    const overdue = isOverdue(r.scheduledTime);
     const typeText = REMINDER_TYPE_MAP[r.type] || r.type;
+    const isPast = new Date(r.scheduledTime) <= now;
     const snoozeButtons = `
       <div class="snooze-buttons">
         <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="5">5m</button>
@@ -1309,10 +1349,20 @@ async function renderCandidateDetail(candidateId) {
         <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="60">1h</button>
       </div>`;
     
-    return `<div class="detail-history-item ${overdue ? 'card-overdue' : ''}">
+    let statusClass = 'badge-new';
+    let statusSuffix = '';
+    if (!isPast && r.earlyReminder && parseInt(r.earlyReminder) > 0) {
+      statusClass = 'badge-warning';
+      statusSuffix = ' (提前提醒中)';
+    } else if (isPast) {
+      statusClass = 'badge-rejected';
+      statusSuffix = ' (已过期)';
+    }
+    
+    return `<div class="detail-history-item card-overdue">
       <div class="detail-history-header">
-        <span class="badge ${overdue ? 'badge-rejected' : 'badge-new'}">${typeText}</span>
-        <span class="detail-history-date ${overdue ? 'text-danger' : ''}">${formatDateTime(r.scheduledTime)}${overdue ? ' (已过期)' : ''}</span>
+        <span class="badge ${statusClass}">${typeText}</span>
+        <span class="detail-history-date text-danger">${formatDateTime(r.scheduledTime)}${statusSuffix}</span>
       </div>
       ${r.note ? `<div class="detail-note">${escapeHtml(r.note)}</div>` : ''}
       ${snoozeButtons}
@@ -1347,7 +1397,7 @@ async function renderCandidateDetail(candidateId) {
   if (candidate.statusHistory && candidate.statusHistory.length > 0) {
     candidate.statusHistory.forEach(sh => {
       const isReject = sh.to === 'rejected';
-      const isAdvance = ['interviewing', 'offered', 'hired'].includes(sh.to);
+      const isAdvance = ['phone_screen', 'interviewing', 'offered', 'hired'].includes(sh.to);
       let text = `${sh.fromText} → ${sh.toText}`;
       if (sh.reason) text += `，原因：${sh.reason}`;
       history.push({

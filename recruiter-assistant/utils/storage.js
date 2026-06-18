@@ -264,7 +264,17 @@ async function deleteReminder(id) {
 async function getPendingReminders() {
   const reminders = await getReminders();
   const now = new Date();
-  return reminders.filter(r => !r.completed && new Date(r.scheduledTime) <= now);
+  return reminders.filter(r => {
+    if (r.completed) return false;
+    const scheduled = new Date(r.scheduledTime);
+    if (scheduled <= now) return true;
+    const earlyMinutes = parseInt(r.earlyReminder || '0');
+    if (earlyMinutes > 0) {
+      const earlyTime = new Date(scheduled.getTime() - earlyMinutes * 60000);
+      if (earlyTime <= now) return true;
+    }
+    return false;
+  });
 }
 
 async function getUpcomingReminders() {
@@ -276,8 +286,8 @@ async function snoozeReminder(id, minutes = 15) {
   const reminders = await getReminders();
   const index = reminders.findIndex(r => r.id === id);
   if (index === -1) return null;
-  const newTime = new Date(reminders[index].scheduledTime);
-  newTime.setMinutes(newTime.getMinutes() + minutes);
+  const now = new Date();
+  const newTime = new Date(now.getTime() + minutes * 60000);
   reminders[index] = {
     ...reminders[index],
     scheduledTime: newTime.toISOString().slice(0, 16),
