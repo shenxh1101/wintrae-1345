@@ -14,6 +14,11 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setOptions({ path: 'sidepanel/sidepanel.html' });
 });
 
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create('checkReminders', { periodInMinutes: 1 });
+  checkAndNotifyReminders();
+});
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'checkReminders') {
     await checkAndNotifyReminders();
@@ -35,6 +40,7 @@ async function checkAndNotifyReminders() {
 
   for (const reminder of reminders) {
     if (reminder.completed) continue;
+    if (reminder.snoozedUntil && new Date(reminder.snoozedUntil) > now) continue;
 
     const scheduled = new Date(reminder.scheduledTime);
     const earlyMinutes = parseInt(reminder.earlyReminder || '0');
@@ -77,6 +83,7 @@ async function checkAndNotifyReminders() {
           earlyReminder: reminder.earlyReminder,
           repeatInterval: reminder.repeatInterval,
           snoozeCount: 0,
+          snoozedUntil: '',
           originalScheduledTime: nextTime.toISOString().slice(0, 16),
           completed: false,
           notified: false,

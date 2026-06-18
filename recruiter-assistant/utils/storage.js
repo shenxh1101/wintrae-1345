@@ -221,6 +221,7 @@ async function addReminder(reminder) {
     earlyReminder: reminder.earlyReminder || '0',
     repeatInterval: reminder.repeatInterval || 'none',
     snoozeCount: 0,
+    snoozedUntil: '',
     originalScheduledTime: reminder.originalScheduledTime || reminder.scheduledTime || '',
     completed: false,
     notified: false,
@@ -243,6 +244,7 @@ async function updateReminder(id, updates) {
   if (updates.scheduledTime && updates.scheduledTime !== reminders[index].scheduledTime) {
     updated.notified = false;
     updated.earlyNotified = false;
+    updated.snoozedUntil = '';
   }
   
   if (updates.completed === true) {
@@ -266,6 +268,7 @@ async function getPendingReminders() {
   const now = new Date();
   return reminders.filter(r => {
     if (r.completed) return false;
+    if (r.snoozedUntil && new Date(r.snoozedUntil) > now) return false;
     const scheduled = new Date(r.scheduledTime);
     if (scheduled <= now) return true;
     const earlyMinutes = parseInt(r.earlyReminder || '0');
@@ -291,6 +294,7 @@ async function snoozeReminder(id, minutes = 15) {
   reminders[index] = {
     ...reminders[index],
     scheduledTime: newTime.toISOString().slice(0, 16),
+    snoozedUntil: newTime.toISOString().slice(0, 16),
     snoozeCount: (reminders[index].snoozeCount || 0) + 1,
     completed: false,
     notified: false,

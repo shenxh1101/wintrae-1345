@@ -83,6 +83,7 @@ function init() {
   bindStarRating();
   bindDynamicRows();
   bindMessageListener();
+  bindVisibilityChange();
   loadAll();
   startReminderCheck();
   checkPendingScrapeData();
@@ -100,6 +101,21 @@ function bindMessageListener() {
       sendResponse({ status: 'ok' });
     }
     return true;
+  });
+}
+
+function bindVisibilityChange() {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      updatePendingReminderBadge();
+      const remindersPane = document.querySelector('[data-pane="reminders"]');
+      if (remindersPane && remindersPane.classList.contains('active')) {
+        renderReminders();
+      }
+      if (currentCandidateId) {
+        renderCandidateDetail(currentCandidateId);
+      }
+    }
   });
 }
 
@@ -1021,6 +1037,7 @@ async function renderReminders() {
 
   function isPending(r) {
     if (r.completed) return false;
+    if (r.snoozedUntil && new Date(r.snoozedUntil) > now) return false;
     const scheduled = new Date(r.scheduledTime);
     if (scheduled <= now) return true;
     const earlyMinutes = parseInt(r.earlyReminder || '0');
@@ -1147,23 +1164,6 @@ async function saveReminder() {
 
   await addReminder(data);
 
-  try {
-    const scheduledDate = new Date(form.scheduledTime.value);
-    const earlyMinutes = parseInt(form.earlyReminder?.value || '0');
-    if (earlyMinutes > 0) {
-      const earlyDate = new Date(scheduledDate.getTime() - earlyMinutes * 60000);
-      const now = new Date();
-      const delay = earlyDate.getTime() - now.getTime();
-      if (delay > 0 && delay < 14400000) {
-        chrome.alarms.create('checkReminders', { delayInMinutes: Math.max(delay / 60000, 0.1) });
-      }
-    }
-    const delay = scheduledDate.getTime() - new Date().getTime();
-    if (delay > 0 && delay < 14400000) {
-      chrome.alarms.create('checkReminders', { delayInMinutes: Math.max(delay / 60000, 0.1) });
-    }
-  } catch (e) {}
-
   closeModal('reminder-modal');
   updatePendingReminderBadge();
   if (currentCandidateId) {
@@ -1285,6 +1285,7 @@ async function renderCandidateDetail(candidateId) {
   
   function isReminderPending(r) {
     if (r.completed) return false;
+    if (r.snoozedUntil && new Date(r.snoozedUntil) > now) return false;
     const scheduled = new Date(r.scheduledTime);
     if (scheduled <= now) return true;
     const earlyMinutes = parseInt(r.earlyReminder || '0');
