@@ -95,6 +95,7 @@ async function addCandidate(candidate) {
     name: candidate.name || '',
     email: candidate.email || '',
     phone: candidate.phone || '',
+    wechat: candidate.wechat || '',
     currentCompany: candidate.currentCompany || '',
     links: candidate.links || [],
     expectedSalary: candidate.expectedSalary || '',
@@ -107,6 +108,7 @@ async function addCandidate(candidate) {
     advanceReason: candidate.advanceReason || '',
     rejectReason: candidate.rejectReason || '',
     notes: candidate.notes || '',
+    statusHistory: candidate.statusHistory || [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -139,7 +141,14 @@ async function deleteCandidate(id) {
 
 async function findCandidateByUrl(url) {
   const candidates = await getCandidates();
-  return candidates.filter(c => c.pageUrl === url);
+  return candidates.filter(c => {
+    if (c.pageUrl === url) return true;
+    if (c.links && c.links.some(l => {
+      const linkUrl = typeof l === 'string' ? l : (l.url || '');
+      return linkUrl === url;
+    })) return true;
+    return false;
+  });
 }
 
 async function getInterviews() {
@@ -254,8 +263,8 @@ async function deleteReminder(id) {
 
 async function getPendingReminders() {
   const reminders = await getReminders();
-  const now = new Date().toISOString();
-  return reminders.filter(r => !r.completed && r.scheduledTime <= now);
+  const now = new Date();
+  return reminders.filter(r => !r.completed && new Date(r.scheduledTime) <= now);
 }
 
 async function getUpcomingReminders() {
@@ -288,7 +297,7 @@ async function exportCandidatesCSV(positionId, candidatesList) {
   const reminders = await getReminders();
   let filtered = positionId ? candidates.filter(c => c.positionId === positionId) : candidates;
 
-  const headers = ['姓名', '邮箱', '电话', '当前公司', '期望薪资', '技能', '来源渠道', '职位', '状态', '电话筛选结果', '推进原因', '淘汰原因', '备注', '最近面试结果', '最近面试评价', '下次跟进时间', '候选人链接', '页面链接', '创建时间'];
+  const headers = ['姓名', '邮箱', '电话', '微信', '当前公司', '期望薪资', '技能', '来源渠道', '职位', '状态', '电话筛选结果', '推进原因', '淘汰原因', '备注', '最近面试结果', '最近面试评价', '下次跟进时间', '候选人链接', '页面链接', '创建时间'];
   const statusMap = { new: '新候选人', phone_screen: '电话筛选中', interviewing: '面试中', offered: '已发offer', rejected: '已淘汰', hired: '已录用' };
   const resultMap = { pending: '待定', pass: '通过', fail: '未通过' };
 
@@ -298,12 +307,16 @@ async function exportCandidatesCSV(positionId, candidatesList) {
     const latestInterview = candidateInterviews[0];
     const candidateReminders = reminders.filter(r => r.candidateId === c.id && !r.completed).sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime));
     const nextReminder = candidateReminders[0];
-    const linksStr = (c.links || []).map(l => typeof l === 'string' ? l : l.url).join('; ');
+    const linksStr = (c.links || []).map(l => {
+      const isObj = typeof l === 'object' && l !== null;
+      return isObj ? (l.url || '') : String(l);
+    }).filter(u => u).join('; ');
 
     return [
       c.name,
       c.email,
       c.phone,
+      c.wechat,
       c.currentCompany,
       c.expectedSalary,
       (c.skills || []).join('; '),

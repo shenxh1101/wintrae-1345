@@ -67,13 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'quick-scrape':
         chrome.runtime.sendMessage({ type: 'SCRAPE_PAGE' }, (response) => {
           if (response && tab) {
+            chrome.storage.local.set({ _pendingScrapeData: response });
             chrome.sidePanel.open({ tabId: tab.id });
-            setTimeout(() => {
-              chrome.runtime.sendMessage({
-                type: 'OPEN_CANDIDATE_WITH_SCRAPE',
-                data: response
-              });
-            }, 300);
           }
         });
         window.close();

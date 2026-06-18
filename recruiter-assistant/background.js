@@ -31,6 +31,7 @@ async function checkAndNotifyReminders() {
   const reminders = await getData(STORAGE_KEYS.REMINDERS);
   const now = new Date();
   let hasChanges = false;
+  const newReminders = [];
 
   for (const reminder of reminders) {
     if (reminder.completed) continue;
@@ -47,7 +48,7 @@ async function checkAndNotifyReminders() {
         type: 'basic',
         iconUrl: 'icons/icon128.png',
         title: '招聘跟进提醒 (提前提醒)',
-        message: `候选人 ${reminder.candidateName} - ${reminder.note || reminder.type}\n${formatDateTime(reminder.scheduledTime)}`,
+        message: `候选人 ${reminder.candidateName} - ${reminder.note || reminder.type}\n计划时间: ${formatDateTime(reminder.scheduledTime)}`,
         priority: 2
       });
       reminder.earlyNotified = true;
@@ -67,20 +68,30 @@ async function checkAndNotifyReminders() {
       if (reminder.repeatInterval && reminder.repeatInterval !== 'none') {
         const intervalDays = REPEAT_INTERVAL_MAP[reminder.repeatInterval] || 7;
         const nextTime = new Date(scheduled.getTime() + intervalDays * 24 * 60 * 60 * 1000);
-        reminder.notified = false;
-        reminder.earlyNotified = false;
-        reminder.scheduledTime = nextTime.toISOString().slice(0, 16);
-        reminder.originalScheduledTime = reminder.originalScheduledTime || reminder.scheduledTime;
-        reminder.repeatCount = (reminder.repeatCount || 0) + 1;
-      } else {
-        reminder.completed = true;
+        newReminders.push({
+          id: generateId(),
+          candidateId: reminder.candidateId,
+          candidateName: reminder.candidateName,
+          type: reminder.type,
+          scheduledTime: nextTime.toISOString().slice(0, 16),
+          earlyReminder: reminder.earlyReminder,
+          repeatInterval: reminder.repeatInterval,
+          snoozeCount: 0,
+          originalScheduledTime: nextTime.toISOString().slice(0, 16),
+          completed: false,
+          notified: false,
+          earlyNotified: false,
+          note: reminder.note || '',
+          createdAt: new Date().toISOString()
+        });
       }
       hasChanges = true;
     }
   }
 
   if (hasChanges) {
-    await setData(STORAGE_KEYS.REMINDERS, reminders);
+    const allReminders = [...reminders, ...newReminders];
+    await setData(STORAGE_KEYS.REMINDERS, allReminders);
   }
 }
 
@@ -131,7 +142,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'CHECK_DUPLICATE') {
     getData(STORAGE_KEYS.CANDIDATES).then((candidates) => {
       const url = message.url;
-      const duplicates = candidates.filter(c => c.pageUrl === url);
+      const duplicates = candidates.filter(c => {
+        if (c.pageUrl === url) return true;
+        if (c.links && c.links.some(l => {
+          const linkUrl = typeof l === 'string' ? l : (l.url || '');
+          return linkUrl === url;
+        })) return true;
+        return false;
+      });
       sendResponse({ duplicates, count: duplicates.length });
     });
     return true;

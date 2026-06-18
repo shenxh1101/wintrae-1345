@@ -417,6 +417,10 @@ body {
   display: block;
 }
 
+.tab-pane.candidate-detail-view.active {
+  display: flex;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
