@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>招聘助手</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <h1 class="popup-title">📋 招聘助手</h1>
+    </header>
+
+    <div class="popup-stats" data-hook="stats">
+      <div class="stat-item">
+        <span class="stat-value" data-hook="stat-positions">0</span>
+        <span class="stat-label">职位</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" data-hook="stat-candidates">0</span>
+        <span class="stat-label">候选人</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" data-hook="stat-interviews">0</span>
+        <span class="stat-label">面试</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" data-hook="stat-reminders">0</span>
+        <span class="stat-label">待提醒</span>
+      </div>
+    </div>
+
+    <div class="popup-actions">
+      <button class="popup-btn popup-btn-primary" data-action="open-sidepanel">
+        🔥 打开侧边栏
+      </button>
+      <button class="popup-btn popup-btn-scrape" data-action="quick-scrape">
+        📄 抓取当前页面
+      </button>
+      <button class="popup-btn popup-btn-secondary" data-action="add-candidate-quick">
+        ➕ 快速添加候选人
+      </button>
+    </div>
+
+    <div class="popup-recent" data-hook="recent-section">
+      <h3 class="section-title">最近添加</h3>
+      <ul class="recent-list" data-hook="recent-list"></ul>
+    </div>
+
+    <footer class="popup-footer">
+      <span class="version">v1.0.0</span>
+    </footer>
+  </div>
+
+  <script src="../utils/storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

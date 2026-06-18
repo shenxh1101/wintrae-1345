@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>招聘助手 - Recruiter Assistant</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top">
+      <h1 class="app-title">招聘助手</h1>
+      <button class="btn btn-export" data-action="export-csv" title="导出CSV">📤 导出</button>
+    </div>
+    <nav class="tab-nav" data-component="tab-nav">
+      <button class="tab-btn active" data-tab="positions" data-action="switch-tab">📋 职位库</button>
+      <button class="tab-btn" data-tab="candidates" data-action="switch-tab">👤 候选人</button>
+      <button class="tab-btn" data-tab="interviews" data-action="switch-tab">💬 面试</button>
+      <button class="tab-btn" data-tab="reminders" data-action="switch-tab">🔔 提醒</button>
+    </nav>
+  </header>
+
+  <main class="tab-content">
+    <!-- ==================== POSITIONS TAB ==================== -->
+    <section class="tab-pane active" data-pane="positions">
+      <div class="pane-toolbar">
+        <button class="btn btn-primary" data-action="add-position">+ 新增职位</button>
+        <input type="text" class="input search-input" data-hook="position-search" placeholder="搜索职位...">
+      </div>
+      <div class="loading-state" data-hook="positions-loading" hidden>
+        <span class="spinner"></span> 加载中...
+      </div>
+      <div class="empty-state" data-hook="positions-empty" hidden>暂无职位，点击"新增职位"开始添加</div>
+      <ul class="card-list" data-hook="position-list"></ul>
+    </section>
+
+    <!-- ==================== CANDIDATES TAB ==================== -->
+    <section class="tab-pane" data-pane="candidates">
+      <div class="pane-toolbar">
+        <button class="btn btn-scrape" data-action="scrape-page">🔥 一键抓取当前页面</button>
+        <button class="btn btn-primary" data-action="add-candidate">+ 新增候选人</button>
+      </div>
+      <div class="filter-bar">
+        <input type="text" class="input search-input" data-hook="candidate-search" placeholder="搜索候选人...">
+        <select class="select" data-hook="candidate-position-filter">
+          <option value="">全部职位</option>
+        </select>
+        <select class="select" data-hook="candidate-status-filter">
+          <option value="">全部状态</option>
+          <option value="new">新候选人</option>
+          <option value="phone_screen">电话筛选中</option>
+          <option value="interviewing">面试中</option>
+          <option value="offered">已发offer</option>
+          <option value="rejected">已淘汰</option>
+          <option value="hired">已录用</option>
+        </select>
+      </div>
+      <div class="loading-state" data-hook="candidates-loading" hidden>
+        <span class="spinner"></span> 加载中...
+      </div>
+      <div class="empty-state" data-hook="candidates-empty" hidden>暂无候选人</div>
+      <ul class="card-list" data-hook="candidate-list"></ul>
+    </section>
+
+    <!-- ==================== INTERVIEWS TAB ==================== -->
+    <section class="tab-pane" data-pane="interviews">
+      <div class="pane-toolbar">
+        <button class="btn btn-primary" data-action="add-interview">+ 新增面试</button>
+      </div>
+      <div class="filter-bar">
+        <input type="text" class="input search-input" data-hook="interview-search" placeholder="搜索候选人...">
+        <select class="select" data-hook="interview-position-filter">
+          <option value="">全部职位</option>
+        </select>
+      </div>
+      <div class="loading-state" data-hook="interviews-loading" hidden>
+        <span class="spinner"></span> 加载中...
+      </div>
+      <div class="empty-state" data-hook="interviews-empty" hidden>暂无面试记录</div>
+      <ul class="card-list" data-hook="interview-list"></ul>
+    </section>
+
+    <!-- ==================== REMINDERS TAB ==================== -->
+    <section class="tab-pane" data-pane="reminders">
+      <div class="pane-toolbar">
+        <button class="btn btn-primary" data-action="add-reminder">+ 新增提醒</button>
+      </div>
+      <div class="loading-state" data-hook="reminders-loading" hidden>
+        <span class="spinner"></span> 加载中...
+      </div>
+      <div class="empty-state" data-hook="reminders-empty" hidden>暂无提醒</div>
+      <ul class="card-list" data-hook="reminder-list"></ul>
+    </section>
+  </main>
+
+  <!-- ==================== POSITION MODAL ==================== -->
+  <div class="modal-overlay" data-modal="position-modal" hidden>
+    <div class="modal" role="dialog" aria-labelledby="position-modal-title">
+      <div class="modal-header">
+        <h2 id="position-modal-title" data-hook="position-modal-title">新增职位</h2>
+        <button class="modal-close" data-action="close-modal" data-modal="position-modal">&times;</button>
+      </div>
+      <form class="modal-body" data-hook="position-form">
+        <input type="hidden" name="id" data-hook="position-id">
+        <div class="form-group">
+          <label for="pos-title">职位名称 <span class="required">*</span></label>
+          <input type="text" id="pos-title" name="title" class="input" required placeholder="如：高级前端工程师">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="pos-department">部门</label>
+            <input type="text" id="pos-department" name="department" class="input" placeholder="如：技术部">
+          </div>
+          <div class="form-group">
+            <label for="pos-location">工作地点</label>
+            <input type="text" id="pos-location" name="location" class="input" placeholder="如：北京">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="pos-status">状态</label>
+          <select id="pos-status" name="status" class="select">
+            <option value="open">招聘中</option>
+            <option value="paused">暂停</option>
+            <option value="closed">已关闭</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="pos-description">职位描述</label>
+          <textarea id="pos-description" name="description" class="textarea" rows="4" placeholder="职位要求、职责等..."></textarea>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-action="close-modal" data-modal="position-modal">取消</button>
+        <button class="btn btn-primary" data-action="save-position">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CANDIDATE MODAL ==================== -->
+  <div class="modal-overlay" data-modal="candidate-modal" hidden>
+    <div class="modal modal-lg" role="dialog" aria-labelledby="candidate-modal-title">
+      <div class="modal-header">
+        <h2 id="candidate-modal-title" data-hook="candidate-modal-title">新增候选人</h2>
+        <button class="modal-close" data-action="close-modal" data-modal="candidate-modal">&times;</button>
+      </div>
+      <form class="modal-body" data-hook="candidate-form">
+        <input type="hidden" name="id" data-hook="candidate-id">
+
+        <fieldset class="form-section">
+          <legend>基本信息</legend>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="cand-name">姓名 <span class="required">*</span></label>
+              <input type="text" id="cand-name" name="name" class="input" required placeholder="候选人姓名">
+            </div>
+            <div class="form-group">
+              <label for="cand-phone">电话</label>
+              <input type="tel" id="cand-phone" name="phone" class="input" placeholder="手机号码">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="cand-email">邮箱</label>
+              <input type="email" id="cand-email" name="email" class="input" placeholder="邮箱地址">
+            </div>
+            <div class="form-group">
+              <label for="cand-company">当前公司</label>
+              <input type="text" id="cand-company" name="currentCompany" class="input" placeholder="当前所在公司">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="cand-salary">期望薪资</label>
+              <input type="text" id="cand-salary" name="expectedSalary" class="input" placeholder="如：30K">
+            </div>
+            <div class="form-group">
+              <label for="cand-source">来源渠道</label>
+              <select id="cand-source" name="source" class="select">
+                <option value="">请选择</option>
+                <option value="Boss直聘">Boss直聘</option>
+                <option value="拉勾">拉勾</option>
+                <option value="猎聘">猎聘</option>
+                <option value="LinkedIn">LinkedIn</option>
+                <option value="内推">内推</option>
+                <option value="官网">官网</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>链接</legend>
+          <div data-hook="candidate-links-container">
+            <div class="dynamic-row" data-hook="candidate-link-template">
+              <input type="url" name="links" class="input" placeholder="https://...">
+              <button type="button" class="btn btn-icon btn-remove" data-action="remove-link">✕</button>
+            </div>
+          </div>
+          <button type="button" class="btn btn-link" data-action="add-link">+ 添加链接</button>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>技能标签</legend>
+          <div class="tag-input-wrapper" data-hook="skills-wrapper">
+            <div class="tag-list" data-hook="skills-tags"></div>
+            <input type="text" class="input tag-input" data-hook="skills-input" placeholder="输入技能后按回车添加">
+          </div>
+          <input type="hidden" name="skills" data-hook="candidate-skills-hidden">
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>招聘信息</legend>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="cand-position">关联职位</label>
+              <select id="cand-position" name="positionId" class="select" data-hook="candidate-position-select">
+                <option value="">请选择职位</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="cand-status">状态</label>
+              <select id="cand-status" name="status" class="select">
+                <option value="new">新候选人</option>
+                <option value="phone_screen">电话筛选中</option>
+                <option value="interviewing">面试中</option>
+                <option value="offered">已发offer</option>
+                <option value="rejected">已淘汰</option>
+                <option value="hired">已录用</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>评估与备注</legend>
+          <div class="form-group">
+            <label for="cand-phone-screen">电话筛选结果</label>
+            <textarea id="cand-phone-screen" name="phoneScreenResult" class="textarea" rows="3" placeholder="电话筛选记录..."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="cand-advance-reason">推进原因</label>
+            <textarea id="cand-advance-reason" name="advanceReason" class="textarea" rows="2" placeholder="推进候选人的原因..."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="cand-reject-reason">淘汰原因</label>
+            <textarea id="cand-reject-reason" name="rejectReason" class="textarea" rows="2" placeholder="淘汰候选人的原因..."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="cand-notes">备注</label>
+            <textarea id="cand-notes" name="notes" class="textarea" rows="3" placeholder="其他备注..."></textarea>
+          </div>
+        </fieldset>
+      </form>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-action="close-modal" data-modal="candidate-modal">取消</button>
+        <button class="btn btn-primary" data-action="save-candidate">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== INTERVIEW MODAL ==================== -->
+  <div class="modal-overlay" data-modal="interview-modal" hidden>
+    <div class="modal" role="dialog" aria-labelledby="interview-modal-title">
+      <div class="modal-header">
+        <h2 id="interview-modal-title" data-hook="interview-modal-title">新增面试</h2>
+        <button class="modal-close" data-action="close-modal" data-modal="interview-modal">&times;</button>
+      </div>
+      <form class="modal-body" data-hook="interview-form">
+        <input type="hidden" name="id" data-hook="interview-id">
+        <div class="form-group">
+          <label for="iv-candidate">候选人 <span class="required">*</span></label>
+          <select id="iv-candidate" name="candidateId" class="select" data-hook="interview-candidate-select" required>
+            <option value="">请选择候选人</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="iv-round">轮次</label>
+            <input type="number" id="iv-round" name="round" class="input" min="1" value="1">
+          </div>
+          <div class="form-group">
+            <label for="iv-type">面试类型</label>
+            <select id="iv-type" name="type" class="select">
+              <option value="phone">电话面试</option>
+              <option value="video">视频面试</option>
+              <option value="onsite">现场面试</option>
+              <option value="technical">技术面试</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="iv-date">面试时间 <span class="required">*</span></label>
+            <input type="datetime-local" id="iv-date" name="date" class="input" required>
+          </div>
+          <div class="form-group">
+            <label for="iv-interviewer">面试官</label>
+            <input type="text" id="iv-interviewer" name="interviewer" class="input" placeholder="面试官姓名">
+          </div>
+        </div>
+
+        <fieldset class="form-section">
+          <legend>面试问题</legend>
+          <div data-hook="interview-questions-container">
+            <div class="dynamic-row" data-hook="interview-question-template">
+              <input type="text" name="questions" class="input" placeholder="面试问题...">
+              <button type="button" class="btn btn-icon btn-remove" data-action="remove-question">✕</button>
+            </div>
+          </div>
+          <button type="button" class="btn btn-link" data-action="add-question">+ 添加问题</button>
+        </fieldset>
+
+        <div class="form-group">
+          <label for="iv-evaluation">面试评价</label>
+          <textarea id="iv-evaluation" name="evaluation" class="textarea" rows="3" placeholder="面试评价..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>评分</label>
+          <div class="star-rating" data-hook="interview-star-rating">
+            <span class="star" data-value="1">★</span>
+            <span class="star" data-value="2">★</span>
+            <span class="star" data-value="3">★</span>
+            <span class="star" data-value="4">★</span>
+            <span class="star" data-value="5">★</span>
+          </div>
+          <input type="hidden" name="rating" data-hook="interview-rating" value="0">
+        </div>
+        <div class="form-group">
+          <label for="iv-result">结果</label>
+          <select id="iv-result" name="result" class="select">
+            <option value="pending">待定</option>
+            <option value="pass">通过</option>
+            <option value="fail">未通过</option>
+          </select>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-action="close-modal" data-modal="interview-modal">取消</button>
+        <button class="btn btn-primary" data-action="save-interview">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== REMINDER MODAL ==================== -->
+  <div class="modal-overlay" data-modal="reminder-modal" hidden>
+    <div class="modal" role="dialog" aria-labelledby="reminder-modal-title">
+      <div class="modal-header">
+        <h2 id="reminder-modal-title" data-hook="reminder-modal-title">新增提醒</h2>
+        <button class="modal-close" data-action="close-modal" data-modal="reminder-modal">&times;</button>
+      </div>
+      <form class="modal-body" data-hook="reminder-form">
+        <input type="hidden" name="id" data-hook="reminder-id">
+        <div class="form-group">
+          <label for="rem-candidate">候选人 <span class="required">*</span></label>
+          <select id="rem-candidate" name="candidateId" class="select" data-hook="reminder-candidate-select" required>
+            <option value="">请选择候选人</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="rem-type">提醒类型</label>
+          <select id="rem-type" name="type" class="select">
+            <option value="follow_up">跟进</option>
+            <option value="interview">面试</option>
+            <option value="offer">Offer</option>
+            <option value="deadline">截止日期</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="rem-time">计划时间 <span class="required">*</span></label>
+          <input type="datetime-local" id="rem-time" name="scheduledTime" class="input" required>
+        </div>
+        <div class="form-group">
+          <label for="rem-note">备注</label>
+          <textarea id="rem-note" name="note" class="textarea" rows="3" placeholder="提醒内容..."></textarea>
+        </div>
+      </form>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-action="close-modal" data-modal="reminder-modal">取消</button>
+        <button class="btn btn-primary" data-action="save-reminder">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../utils/storage.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
