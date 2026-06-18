@@ -7,6 +7,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     showDuplicateAlert(message.candidate);
     sendResponse({ status: 'shown' });
   }
+  
+  if (message.type === 'CANDIDATE_SAVED') {
+    showDuplicateAlert(message.candidate);
+    sendResponse({ status: 'shown' });
+  }
 });
 
 function showDuplicateAlert(candidate) {

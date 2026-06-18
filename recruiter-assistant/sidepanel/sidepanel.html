@@ -16,7 +16,7 @@
       <button class="tab-btn active" data-tab="positions" data-action="switch-tab">📋 职位库</button>
       <button class="tab-btn" data-tab="candidates" data-action="switch-tab">👤 候选人</button>
       <button class="tab-btn" data-tab="interviews" data-action="switch-tab">💬 面试</button>
-      <button class="tab-btn" data-tab="reminders" data-action="switch-tab">🔔 提醒</button>
+      <button class="tab-btn" data-tab="reminders" data-action="switch-tab">🔔 提醒<span class="pending-count-text" data-hook="pending-count-text"></span> <span class="reminder-badge" data-hook="pending-reminder-badge" hidden>0</span></button>
     </nav>
   </header>
 
@@ -84,12 +84,92 @@
     <section class="tab-pane" data-pane="reminders">
       <div class="pane-toolbar">
         <button class="btn btn-primary" data-action="add-reminder">+ 新增提醒</button>
+        <span class="pending-count" data-hook="pending-count-text"></span>
       </div>
       <div class="loading-state" data-hook="reminders-loading" hidden>
         <span class="spinner"></span> 加载中...
       </div>
       <div class="empty-state" data-hook="reminders-empty" hidden>暂无提醒</div>
       <ul class="card-list" data-hook="reminder-list"></ul>
+    </section>
+
+    <!-- ==================== CANDIDATE DETAIL VIEW ==================== -->
+    <section class="tab-pane candidate-detail-view" data-pane="candidate-detail" hidden>
+      <div class="detail-toolbar">
+        <button class="btn btn-secondary" data-action="back-to-candidates">← 返回列表</button>
+        <div class="detail-actions">
+          <button class="btn btn-primary" data-action="edit-candidate-detail">编辑</button>
+          <button class="btn btn-danger" data-action="delete-candidate-detail">删除</button>
+        </div>
+      </div>
+      <div class="detail-content">
+        <div class="detail-header">
+          <h1 class="detail-name" data-hook="detail-name"></h1>
+          <span class="badge" data-hook="detail-status"></span>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">📋 基本信息</h3>
+          <div class="detail-info-grid">
+            <div class="detail-info-item">
+              <span class="detail-info-label">💼 职位</span>
+              <span class="detail-info-value" data-hook="detail-position"></span>
+            </div>
+            <div class="detail-info-item">
+              <span class="detail-info-label">🏢 当前公司</span>
+              <span class="detail-info-value" data-hook="detail-company"></span>
+            </div>
+            <div class="detail-info-item">
+              <span class="detail-info-label">💰 期望薪资</span>
+              <span class="detail-info-value" data-hook="detail-salary"></span>
+            </div>
+            <div class="detail-info-item">
+              <span class="detail-info-label">🔗 来源</span>
+              <span class="detail-info-value" data-hook="detail-source"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">📞 联系方式</h3>
+          <div class="detail-info-grid" data-hook="detail-contact-info"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">🔗 相关链接</h3>
+          <div class="detail-info-grid" data-hook="detail-links"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">🏷️ 技能标签</h3>
+          <div class="detail-skill-list" data-hook="detail-skills"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">📞 电话筛选</h3>
+          <div class="detail-note" data-hook="detail-phone-screen"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">📝 面试记录</h3>
+          <div class="detail-history-list" data-hook="detail-interviews"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">⏰ 待处理提醒</h3>
+          <div class="detail-history-list" data-hook="detail-pending-reminders"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">✅ 已完成提醒</h3>
+          <div class="detail-history-list" data-hook="detail-completed-reminders"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">📜 操作历史</h3>
+          <div class="detail-history-list" data-hook="detail-history"></div>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -160,19 +240,25 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label for="cand-email">邮箱</label>
-              <input type="email" id="cand-email" name="email" class="input" placeholder="邮箱地址">
+              <label for="cand-wechat">微信</label>
+              <input type="text" id="cand-wechat" name="wechat" class="input" placeholder="微信号">
             </div>
             <div class="form-group">
-              <label for="cand-company">当前公司</label>
-              <input type="text" id="cand-company" name="currentCompany" class="input" placeholder="当前所在公司">
+              <label for="cand-email">邮箱</label>
+              <input type="email" id="cand-email" name="email" class="input" placeholder="邮箱地址">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
+              <label for="cand-company">当前公司</label>
+              <input type="text" id="cand-company" name="currentCompany" class="input" placeholder="当前所在公司">
+            </div>
+            <div class="form-group">
               <label for="cand-salary">期望薪资</label>
               <input type="text" id="cand-salary" name="expectedSalary" class="input" placeholder="如：30K">
             </div>
+          </div>
+          <div class="form-row">
             <div class="form-group">
               <label for="cand-source">来源渠道</label>
               <select id="cand-source" name="source" class="select">
@@ -369,6 +455,29 @@
         <div class="form-group">
           <label for="rem-time">计划时间 <span class="required">*</span></label>
           <input type="datetime-local" id="rem-time" name="scheduledTime" class="input" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="rem-early">提前提醒</label>
+            <select id="rem-early" name="earlyReminder" class="select">
+              <option value="0">不提前</option>
+              <option value="5">提前5分钟</option>
+              <option value="15">提前15分钟</option>
+              <option value="30">提前30分钟</option>
+              <option value="60">提前1小时</option>
+              <option value="1440">提前1天</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="rem-repeat">重复</label>
+            <select id="rem-repeat" name="repeatInterval" class="select">
+              <option value="none">不重复</option>
+              <option value="daily">每天</option>
+              <option value="weekly">每周</option>
+              <option value="biweekly">每两周</option>
+              <option value="monthly">每月</option>
+            </select>
+          </div>
         </div>
         <div class="form-group">
           <label for="rem-note">备注</label>

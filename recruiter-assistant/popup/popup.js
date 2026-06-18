@@ -68,6 +68,12 @@ document.addEventListener('DOMContentLoaded', () => {
         chrome.runtime.sendMessage({ type: 'SCRAPE_PAGE' }, (response) => {
           if (response && tab) {
             chrome.sidePanel.open({ tabId: tab.id });
+            setTimeout(() => {
+              chrome.runtime.sendMessage({
+                type: 'OPEN_CANDIDATE_WITH_SCRAPE',
+                data: response
+              });
+            }, 300);
           }
         });
         window.close();

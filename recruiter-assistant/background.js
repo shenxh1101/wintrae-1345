@@ -20,26 +20,79 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+const REPEAT_INTERVAL_MAP = {
+  daily: 1,
+  weekly: 7,
+  biweekly: 14,
+  monthly: 30
+};
+
 async function checkAndNotifyReminders() {
   const reminders = await getData(STORAGE_KEYS.REMINDERS);
-  const now = new Date().toISOString();
-  const pending = reminders.filter(r => !r.completed && r.scheduledTime <= now);
+  const now = new Date();
+  let hasChanges = false;
 
-  for (const reminder of pending) {
-    chrome.notifications.create(reminder.id, {
-      type: 'basic',
-      iconUrl: 'icons/icon128.png',
-      title: '招聘跟进提醒',
-      message: `候选人 ${reminder.candidateName} - ${reminder.note || reminder.type}`,
-      priority: 2
-    });
+  for (const reminder of reminders) {
+    if (reminder.completed) continue;
 
-    reminder.completed = true;
+    const scheduled = new Date(reminder.scheduledTime);
+    const earlyMinutes = parseInt(reminder.earlyReminder || '0');
+    const earlyTime = new Date(scheduled.getTime() - earlyMinutes * 60000);
+    
+    const isTimeToNotify = scheduled <= now;
+    const isTimeForEarly = earlyMinutes > 0 && earlyTime <= now && !reminder.earlyNotified;
+    
+    if (isTimeForEarly) {
+      chrome.notifications.create(`${reminder.id}_early`, {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: '招聘跟进提醒 (提前提醒)',
+        message: `候选人 ${reminder.candidateName} - ${reminder.note || reminder.type}\n${formatDateTime(reminder.scheduledTime)}`,
+        priority: 2
+      });
+      reminder.earlyNotified = true;
+      hasChanges = true;
+    }
+
+    if (isTimeToNotify && !reminder.notified) {
+      chrome.notifications.create(reminder.id, {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: '招聘跟进提醒',
+        message: `候选人 ${reminder.candidateName} - ${reminder.note || reminder.type}`,
+        priority: 2
+      });
+      reminder.notified = true;
+      
+      if (reminder.repeatInterval && reminder.repeatInterval !== 'none') {
+        const intervalDays = REPEAT_INTERVAL_MAP[reminder.repeatInterval] || 7;
+        const nextTime = new Date(scheduled.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+        reminder.notified = false;
+        reminder.earlyNotified = false;
+        reminder.scheduledTime = nextTime.toISOString().slice(0, 16);
+        reminder.originalScheduledTime = reminder.originalScheduledTime || reminder.scheduledTime;
+        reminder.repeatCount = (reminder.repeatCount || 0) + 1;
+      } else {
+        reminder.completed = true;
+      }
+      hasChanges = true;
+    }
   }
 
-  if (pending.length > 0) {
+  if (hasChanges) {
     await setData(STORAGE_KEYS.REMINDERS, reminders);
   }
+}
+
+function formatDateTime(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 function getData(key) {

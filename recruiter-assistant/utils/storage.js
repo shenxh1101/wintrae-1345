@@ -75,7 +75,7 @@ async function deletePosition(id) {
   positions = positions.filter(p => p.id !== id);
   await savePositions(positions);
   let candidates = await getCandidates();
-  candidates = candidates.filter(c => c.positionId !== id);
+  candidates = candidates.map(c => c.positionId === id ? { ...c, positionId: '', updatedAt: new Date().toISOString() } : c);
   await saveCandidates(candidates);
   return true;
 }
@@ -209,7 +209,13 @@ async function addReminder(reminder) {
     candidateName: reminder.candidateName || '',
     type: reminder.type || 'follow_up',
     scheduledTime: reminder.scheduledTime || '',
+    earlyReminder: reminder.earlyReminder || '0',
+    repeatInterval: reminder.repeatInterval || 'none',
+    snoozeCount: 0,
+    originalScheduledTime: reminder.originalScheduledTime || reminder.scheduledTime || '',
     completed: false,
+    notified: false,
+    earlyNotified: false,
     note: reminder.note || '',
     createdAt: new Date().toISOString()
   };
@@ -222,7 +228,19 @@ async function updateReminder(id, updates) {
   const reminders = await getReminders();
   const index = reminders.findIndex(r => r.id === id);
   if (index === -1) return null;
-  reminders[index] = { ...reminders[index], ...updates };
+  
+  const updated = { ...reminders[index], ...updates };
+  
+  if (updates.scheduledTime && updates.scheduledTime !== reminders[index].scheduledTime) {
+    updated.notified = false;
+    updated.earlyNotified = false;
+  }
+  
+  if (updates.completed === true) {
+    updated.notified = true;
+  }
+  
+  reminders[index] = updated;
   await saveReminders(reminders);
   return reminders[index];
 }
@@ -240,17 +258,48 @@ async function getPendingReminders() {
   return reminders.filter(r => !r.completed && r.scheduledTime <= now);
 }
 
-async function exportCandidatesCSV(positionId) {
-  const candidates = await getCandidates();
+async function getUpcomingReminders() {
+  const reminders = await getReminders();
+  return reminders.filter(r => !r.completed);
+}
+
+async function snoozeReminder(id, minutes = 15) {
+  const reminders = await getReminders();
+  const index = reminders.findIndex(r => r.id === id);
+  if (index === -1) return null;
+  const newTime = new Date(reminders[index].scheduledTime);
+  newTime.setMinutes(newTime.getMinutes() + minutes);
+  reminders[index] = {
+    ...reminders[index],
+    scheduledTime: newTime.toISOString().slice(0, 16),
+    snoozeCount: (reminders[index].snoozeCount || 0) + 1,
+    completed: false,
+    notified: false,
+    earlyNotified: false
+  };
+  await saveReminders(reminders);
+  return reminders[index];
+}
+
+async function exportCandidatesCSV(positionId, candidatesList) {
+  const candidates = candidatesList || await getCandidates();
   const positions = await getPositions();
   const interviews = await getInterviews();
+  const reminders = await getReminders();
   let filtered = positionId ? candidates.filter(c => c.positionId === positionId) : candidates;
 
-  const headers = ['姓名', '邮箱', '电话', '当前公司', '期望薪资', '技能', '来源渠道', '职位', '状态', '电话筛选结果', '推进原因', '淘汰原因', '备注', '页面链接', '创建时间'];
+  const headers = ['姓名', '邮箱', '电话', '当前公司', '期望薪资', '技能', '来源渠道', '职位', '状态', '电话筛选结果', '推进原因', '淘汰原因', '备注', '最近面试结果', '最近面试评价', '下次跟进时间', '候选人链接', '页面链接', '创建时间'];
+  const statusMap = { new: '新候选人', phone_screen: '电话筛选中', interviewing: '面试中', offered: '已发offer', rejected: '已淘汰', hired: '已录用' };
+  const resultMap = { pending: '待定', pass: '通过', fail: '未通过' };
+
   const rows = filtered.map(c => {
     const pos = positions.find(p => p.id === c.positionId);
-    const candidateInterviews = interviews.filter(i => i.candidateId === c.id);
-    const statusMap = { new: '新候选人', phone_screen: '电话筛选中', interviewing: '面试中', offered: '已发offer', rejected: '已淘汰', hired: '已录用' };
+    const candidateInterviews = interviews.filter(i => i.candidateId === c.id).sort((a, b) => new Date(b.date) - new Date(a.date));
+    const latestInterview = candidateInterviews[0];
+    const candidateReminders = reminders.filter(r => r.candidateId === c.id && !r.completed).sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime));
+    const nextReminder = candidateReminders[0];
+    const linksStr = (c.links || []).map(l => typeof l === 'string' ? l : l.url).join('; ');
+
     return [
       c.name,
       c.email,
@@ -265,6 +314,10 @@ async function exportCandidatesCSV(positionId) {
       c.advanceReason,
       c.rejectReason,
       c.notes,
+      latestInterview ? resultMap[latestInterview.result] || latestInterview.result : '',
+      latestInterview ? latestInterview.evaluation : '',
+      nextReminder ? nextReminder.scheduledTime : '',
+      linksStr,
       c.pageUrl,
       c.createdAt
     ];

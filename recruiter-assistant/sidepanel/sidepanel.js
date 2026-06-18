@@ -35,6 +35,20 @@ const REMINDER_TYPE_MAP = {
 
 let currentSkills = [];
 let currentRating = 0;
+let currentCandidateId = null;
+let filterState = {
+  candidateSearch: '',
+  candidatePosition: '',
+  candidateStatus: ''
+};
+let pendingScrapeData = null;
+
+const REPEAT_INTERVAL_MAP = {
+  daily: 1,
+  weekly: 7,
+  biweekly: 14,
+  monthly: 30
+};
 
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
@@ -68,7 +82,57 @@ function init() {
   bindSkillInput();
   bindStarRating();
   bindDynamicRows();
+  bindMessageListener();
   loadAll();
+  startReminderCheck();
+  checkPendingScrapeData();
+}
+
+function bindMessageListener() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'OPEN_CANDIDATE_WITH_SCRAPE') {
+      pendingScrapeData = message.data;
+      setTimeout(() => {
+        const tab = document.querySelector('[data-tab="candidates"]');
+        if (tab) tab.click();
+        openCandidateModal(null, message.data);
+      }, 200);
+      sendResponse({ status: 'ok' });
+    }
+    return true;
+  });
+}
+
+function startReminderCheck() {
+  updatePendingReminderBadge();
+  setInterval(updatePendingReminderBadge, 60000);
+}
+
+async function updatePendingReminderBadge() {
+  const pending = await getPendingReminders();
+  const badge = document.querySelector('[data-hook="pending-reminder-badge"]');
+  const countText = document.querySelector('[data-hook="pending-count-text"]');
+  const count = pending.length;
+  if (badge) {
+    if (count > 0) {
+      badge.hidden = false;
+      badge.textContent = count > 99 ? '99+' : count;
+    } else {
+      badge.hidden = true;
+    }
+  }
+  if (countText) {
+    countText.textContent = count > 0 ? `(${count} 条待处理)` : '';
+  }
+}
+
+function checkPendingScrapeData() {
+  if (pendingScrapeData) {
+    const tab = document.querySelector('[data-tab="candidates"]');
+    if (tab) tab.click();
+    openCandidateModal(null, pendingScrapeData);
+    pendingScrapeData = null;
+  }
 }
 
 function bindTabSwitch() {
@@ -100,6 +164,10 @@ function bindActions() {
       case 'edit-candidate': openCandidateModal(btn.dataset.id); break;
       case 'delete-candidate': handleDeleteCandidate(btn.dataset.id); break;
       case 'scrape-page': scrapePage(); break;
+      case 'view-candidate-detail': openCandidateDetail(btn.dataset.id); break;
+      case 'back-to-candidates': backToCandidateList(); break;
+      case 'edit-candidate-detail': openCandidateModal(currentCandidateId); break;
+      case 'delete-candidate-detail': handleDeleteCandidate(currentCandidateId); break;
       case 'add-interview': openInterviewModal(); break;
       case 'save-interview': saveInterview(); break;
       case 'edit-interview': openInterviewModal(btn.dataset.id); break;
@@ -107,6 +175,7 @@ function bindActions() {
       case 'add-reminder': openReminderModal(); break;
       case 'save-reminder': saveReminder(); break;
       case 'complete-reminder': completeReminder(btn.dataset.id); break;
+      case 'snooze-reminder': handleSnoozeReminder(btn.dataset.id, parseInt(btn.dataset.minutes)); break;
       case 'delete-reminder': handleDeleteReminder(btn.dataset.id); break;
       case 'close-modal': closeModal(btn.dataset.modal); break;
       case 'export-csv': exportCSV(); break;
@@ -128,17 +197,26 @@ function bindSearchAndFilter() {
 
   const candidateSearch = $('[data-hook="candidate-search"]');
   if (candidateSearch) {
-    candidateSearch.addEventListener('input', debounce(() => renderCandidates(), 300));
+    candidateSearch.addEventListener('input', debounce(() => {
+      filterState.candidateSearch = candidateSearch.value;
+      renderCandidates();
+    }, 300));
   }
 
   const candidatePosFilter = $('[data-hook="candidate-position-filter"]');
   if (candidatePosFilter) {
-    candidatePosFilter.addEventListener('change', () => renderCandidates());
+    candidatePosFilter.addEventListener('change', () => {
+      filterState.candidatePosition = candidatePosFilter.value;
+      renderCandidates();
+    });
   }
 
   const candidateStatusFilter = $('[data-hook="candidate-status-filter"]');
   if (candidateStatusFilter) {
-    candidateStatusFilter.addEventListener('change', () => renderCandidates());
+    candidateStatusFilter.addEventListener('change', () => {
+      filterState.candidateStatus = candidateStatusFilter.value;
+      renderCandidates();
+    });
   }
 
   const interviewSearch = $('[data-hook="interview-search"]');
@@ -150,6 +228,15 @@ function bindSearchAndFilter() {
   if (interviewPosFilter) {
     interviewPosFilter.addEventListener('change', () => renderInterviews());
   }
+}
+
+function restoreFilterState() {
+  const candidateSearch = $('[data-hook="candidate-search"]');
+  const candidatePosFilter = $('[data-hook="candidate-position-filter"]');
+  const candidateStatusFilter = $('[data-hook="candidate-status-filter"]');
+  if (candidateSearch) candidateSearch.value = filterState.candidateSearch;
+  if (candidatePosFilter) candidatePosFilter.value = filterState.candidatePosition;
+  if (candidateStatusFilter) candidateStatusFilter.value = filterState.candidateStatus;
 }
 
 function debounce(fn, delay) {
@@ -266,6 +353,7 @@ async function loadAll() {
     populatePositionDropdowns(),
     populateCandidateDropdowns()
   ]);
+  restoreFilterState();
 }
 
 async function populatePositionDropdowns() {
@@ -413,7 +501,17 @@ async function savePosition() {
 }
 
 async function handleDeletePosition(id) {
-  if (!confirm('确定删除此职位？关联的候选人将解除绑定。')) return;
+  const positions = await getPositions();
+  const candidates = await getCandidates();
+  const pos = positions.find(p => p.id === id);
+  const affectedCount = candidates.filter(c => c.positionId === id).length;
+
+  if (affectedCount > 0) {
+    if (!confirm(`确定删除职位「${pos?.title || ''}」？\n\n该职位关联 ${affectedCount} 位候选人，删除后这些候选人将变为未关联状态，资料不会丢失。`)) return;
+  } else {
+    if (!confirm(`确定删除职位「${pos?.title || ''}」？`)) return;
+  }
+
   await deletePosition(id);
   await renderPositions();
   await populatePositionDropdowns();
@@ -423,9 +521,9 @@ async function handleDeletePosition(id) {
 async function renderCandidates() {
   const candidates = await getCandidates();
   const positions = await getPositions();
-  const searchTerm = ($('[data-hook="candidate-search"]')?.value || '').toLowerCase();
-  const posFilter = $('[data-hook="candidate-position-filter"]')?.value || '';
-  const statusFilter = $('[data-hook="candidate-status-filter"]')?.value || '';
+  const searchTerm = filterState.candidateSearch.toLowerCase();
+  const posFilter = filterState.candidatePosition;
+  const statusFilter = filterState.candidateStatus;
 
   let filtered = candidates;
   if (searchTerm) {
@@ -480,7 +578,7 @@ async function renderCandidates() {
         <div class="card-footer">
           <span class="card-date">${formatDate(c.createdAt)}</span>
           <div class="card-actions">
-            <button class="btn btn-link" data-action="view-candidate-interviews" data-id="${c.id}">面试记录</button>
+            <button class="btn btn-link" data-action="view-candidate-detail" data-id="${c.id}">查看详情</button>
             <button class="btn btn-link" data-action="edit-candidate" data-id="${c.id}">编辑</button>
             <button class="btn btn-link btn-danger-link" data-action="delete-candidate" data-id="${c.id}">删除</button>
           </div>
@@ -511,6 +609,7 @@ async function openCandidateModal(id, scrapeData) {
     if (form) {
       form.name.value = cand.name || '';
       form.phone.value = cand.phone || '';
+      form.wechat.value = cand.wechat || '';
       form.email.value = cand.email || '';
       form.currentCompany.value = cand.currentCompany || '';
       form.expectedSalary.value = cand.expectedSalary || '';
@@ -545,8 +644,12 @@ async function openCandidateModal(id, scrapeData) {
       if (form) {
         form.name.value = scrapeData.name || '';
         form.phone.value = scrapeData.phone || '';
+        form.wechat.value = scrapeData.wechat || '';
         form.email.value = scrapeData.email || '';
         form.currentCompany.value = scrapeData.currentCompany || '';
+        if (scrapeData.source) {
+          form.source.value = scrapeData.source;
+        }
       }
       if (scrapeData.links && scrapeData.links.length > 0) {
         container.innerHTML = '';
@@ -581,6 +684,7 @@ async function saveCandidate() {
     name: form.name.value.trim(),
     phone: form.phone.value.trim(),
     email: form.email.value.trim(),
+    wechat: form.wechat?.value?.trim() || '',
     currentCompany: form.currentCompany.value.trim(),
     expectedSalary: form.expectedSalary.value.trim(),
     source: form.source.value,
@@ -594,15 +698,24 @@ async function saveCandidate() {
     links: links
   };
 
+  if (form.status.value === 'rejected' && form.rejectReason.value.trim()) {
+    data.statusChangeReason = '淘汰：' + form.rejectReason.value.trim();
+  } else if (form.status.value === 'advanced' && form.advanceReason.value.trim()) {
+    data.statusChangeReason = '推进：' + form.advanceReason.value.trim();
+  }
+
+  let savedCandidate = null;
   if (id) {
     await updateCandidate(id, data);
+    savedCandidate = { id, ...data };
   } else {
-    const newCand = await addCandidate(data);
+    savedCandidate = await addCandidate(data);
     if (!data.pageUrl) {
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab) {
-          await updateCandidate(newCand.id, { pageUrl: tab.url });
+          await updateCandidate(savedCandidate.id, { pageUrl: tab.url });
+          savedCandidate.pageUrl = tab.url;
         }
       } catch (e) {}
     }
@@ -610,7 +723,26 @@ async function saveCandidate() {
 
   closeModal('candidate-modal');
   currentSkills = [];
-  await renderCandidates();
+  
+  if (savedCandidate && savedCandidate.pageUrl) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url && tab.url === savedCandidate.pageUrl) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'CANDIDATE_SAVED',
+          candidate: savedCandidate
+        });
+      }
+    } catch (e) {}
+  }
+
+  if (currentCandidateId) {
+    await renderCandidateDetail(currentCandidateId);
+  } else {
+    restoreFilterState();
+    await renderCandidates();
+  }
+  
   await populateCandidateDropdowns();
   await renderPositions();
 }
@@ -618,6 +750,15 @@ async function saveCandidate() {
 async function handleDeleteCandidate(id) {
   if (!confirm('确定删除此候选人？关联的面试记录和提醒也将被删除。')) return;
   await deleteCandidate(id);
+  
+  if (currentCandidateId && currentCandidateId === id) {
+    currentCandidateId = null;
+    document.querySelectorAll('[data-pane]').forEach(p => p.hidden = true);
+    const candidatesPane = document.querySelector('[data-pane="candidates"]');
+    if (candidatesPane) candidatesPane.hidden = false;
+  }
+  
+  restoreFilterState();
   await renderCandidates();
   await populateCandidateDropdowns();
   await renderInterviews();
@@ -848,6 +989,14 @@ async function renderReminders() {
     const overdue = !r.completed && isOverdue(r.scheduledTime);
     const typeText = REMINDER_TYPE_MAP[r.type] || r.type;
 
+    const snoozeButtons = !r.completed ? `
+      <div class="snooze-buttons">
+        <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="5" title="5分钟后">5m</button>
+        <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="15" title="15分钟后">15m</button>
+        <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="30" title="30分钟后">30m</button>
+        <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="60" title="1小时后">1h</button>
+      </div>` : '';
+
     return `
       <li class="card ${overdue ? 'card-overdue' : ''} ${r.completed ? 'card-completed' : ''}">
         <div class="card-header">
@@ -858,6 +1007,7 @@ async function renderReminders() {
           <span class="card-meta ${overdue ? 'text-danger' : ''}">📅 ${formatDateTime(r.scheduledTime)}${overdue ? ' (已过期)' : ''}</span>
         </div>
         ${r.note ? `<div class="card-snippet">${escapeHtml(r.note.substring(0, 80))}</div>` : ''}
+        ${snoozeButtons}
         <div class="card-footer">
           <span class="card-date">${formatDate(r.createdAt)}</span>
           <div class="card-actions">
@@ -901,50 +1051,91 @@ async function saveReminder() {
     candidateName: cand?.name || '',
     type: form.type.value,
     scheduledTime: form.scheduledTime.value,
-    note: form.note.value.trim()
+    note: form.note.value.trim(),
+    earlyReminder: form.earlyReminder?.value || '0',
+    repeatInterval: form.repeatInterval?.value || 'none',
+    originalScheduledTime: form.scheduledTime.value
   };
 
   await addReminder(data);
 
   try {
     const scheduledDate = new Date(form.scheduledTime.value);
-    const now = new Date();
-    const delay = scheduledDate.getTime() - now.getTime();
+    const earlyMinutes = parseInt(form.earlyReminder?.value || '0');
+    if (earlyMinutes > 0) {
+      const earlyDate = new Date(scheduledDate.getTime() - earlyMinutes * 60000);
+      const now = new Date();
+      const delay = earlyDate.getTime() - now.getTime();
+      if (delay > 0 && delay < 14400000) {
+        chrome.alarms.create('checkReminders', { delayInMinutes: Math.max(delay / 60000, 0.1) });
+      }
+    }
+    const delay = scheduledDate.getTime() - new Date().getTime();
     if (delay > 0 && delay < 14400000) {
       chrome.alarms.create('checkReminders', { delayInMinutes: Math.max(delay / 60000, 0.1) });
     }
   } catch (e) {}
 
   closeModal('reminder-modal');
-  await renderReminders();
+  updatePendingReminderBadge();
+  if (currentCandidateId) {
+    renderCandidateDetail(currentCandidateId);
+  } else {
+    renderReminders();
+  }
+}
+
+async function handleSnoozeReminder(id, minutes) {
+  await snoozeReminder(id, minutes);
+  updatePendingReminderBadge();
+  if (currentCandidateId) {
+    renderCandidateDetail(currentCandidateId);
+  } else {
+    renderReminders();
+  }
 }
 
 async function completeReminder(id) {
   await updateReminder(id, { completed: true });
-  await renderReminders();
+  updatePendingReminderBadge();
+  if (currentCandidateId) {
+    renderCandidateDetail(currentCandidateId);
+  } else {
+    renderReminders();
+  }
 }
 
 async function handleDeleteReminder(id) {
   if (!confirm('确定删除此提醒？')) return;
   await deleteReminder(id);
-  await renderReminders();
+  updatePendingReminderBadge();
+  if (currentCandidateId) {
+    renderCandidateDetail(currentCandidateId);
+  } else {
+    renderReminders();
+  }
 }
 
 async function exportCSV() {
+  const candidates = await getCandidates();
   const positions = await getPositions();
-  let positionId = '';
+  
+  let filteredCandidates = candidates;
+  if (filterState.candidatePosition) {
+    filteredCandidates = candidates.filter(c => c.positionId === filterState.candidatePosition);
+  }
 
-  if (positions.length > 1) {
+  if (positions.length > 1 && !filterState.candidatePosition) {
     const choice = prompt(`导出哪个职位的候选人？\n留空导出全部\n\n${positions.map((p, i) => `${i + 1}. ${p.title}`).join('\n')}\n\n请输入序号：`);
     if (choice !== null && choice !== '') {
       const idx = parseInt(choice) - 1;
       if (idx >= 0 && idx < positions.length) {
-        positionId = positions[idx].id;
+        filteredCandidates = candidates.filter(c => c.positionId === positions[idx].id);
       }
     }
   }
 
-  const csv = await exportCandidatesCSV(positionId);
+  const csv = await exportCandidatesCSV('', filteredCandidates);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -952,6 +1143,203 @@ async function exportCSV() {
   a.download = `候选人列表_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function openCandidateDetail(candidateId) {
+  currentCandidateId = candidateId;
+  await renderCandidateDetail(candidateId);
+  
+  document.querySelectorAll('[data-pane]').forEach(p => p.hidden = true);
+  const detailPane = document.querySelector('[data-pane="candidate-detail"]');
+  if (detailPane) detailPane.hidden = false;
+}
+
+async function backToCandidateList() {
+  currentCandidateId = null;
+  document.querySelectorAll('[data-pane]').forEach(p => p.hidden = true);
+  const candidatesPane = document.querySelector('[data-pane="candidates"]');
+  if (candidatesPane) candidatesPane.hidden = false;
+  
+  restoreFilterState();
+  await renderCandidates();
+}
+
+async function renderCandidateDetail(candidateId) {
+  const candidates = await getCandidates();
+  const positions = await getPositions();
+  const interviews = await getInterviews();
+  const reminders = await getReminders();
+  
+  const candidate = candidates.find(c => c.id === candidateId);
+  if (!candidate) return;
+  
+  const pos = positions.find(p => p.id === candidate.positionId);
+  const status = STATUS_MAP[candidate.status] || STATUS_MAP.new;
+  
+  const candidateInterviews = interviews
+    .filter(i => i.candidateId === candidateId)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  
+  const candidateReminders = reminders
+    .filter(r => r.candidateId === candidateId)
+    .sort((a, b) => {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      return new Date(a.scheduledTime) - new Date(b.scheduledTime);
+    });
+  
+  const pendingReminders = candidateReminders.filter(r => !r.completed);
+  const completedReminders = candidateReminders.filter(r => r.completed);
+  
+  const skillsHtml = (candidate.skills || []).map(s =>
+    `<span class="skill-tag">${escapeHtml(s)}</span>`
+  ).join('');
+  
+  const linksHtml = (candidate.links || []).map((link, idx) => {
+    if (!link) return '';
+    const parts = link.split('|');
+    const label = parts[0] || '链接';
+    const url = parts[1] || link;
+    return `<div class="detail-info-item">
+      <span class="detail-info-label">🔗 ${escapeHtml(label)}</span>
+      <a href="${escapeHtml(url)}" target="_blank" class="detail-info-value link">${escapeHtml(url)}</a>
+    </div>`;
+  }).join('');
+  
+  const interviewsHtml = candidateInterviews.length > 0 ? candidateInterviews.map(iv => {
+    const type = INTERVIEW_TYPE_MAP[iv.type] || INTERVIEW_TYPE_MAP.phone;
+    const result = INTERVIEW_RESULT_MAP[iv.result] || INTERVIEW_RESULT_MAP.pending;
+    const stars = '★'.repeat(iv.rating || 0) + '☆'.repeat(5 - (iv.rating || 0));
+    const questionsHtml = (iv.questions || []).map(q => `<span class="skill-tag small">${escapeHtml(q)}</span>`).join('');
+    
+    return `<div class="detail-history-item">
+      <div class="detail-history-header">
+        <span class="badge ${type.class}">${type.text} · 第${iv.round}轮</span>
+        <span class="badge ${result.class}">${result.text}</span>
+        <span class="detail-history-date">${formatDateTime(iv.date)}</span>
+      </div>
+      ${iv.rating ? `<div class="card-rating">${stars}</div>` : ''}
+      ${iv.interviewer ? `<div class="detail-info-item"><span class="detail-info-label">面试官</span><span class="detail-info-value">${escapeHtml(iv.interviewer)}</span></div>` : ''}
+      ${questionsHtml ? `<div class="detail-skill-list">${questionsHtml}</div>` : ''}
+      ${iv.evaluation ? `<div class="detail-note">${escapeHtml(iv.evaluation)}</div>` : ''}
+    </div>`;
+  }).join('') : '<div class="detail-note">暂无面试记录</div>';
+  
+  const pendingRemindersHtml = pendingReminders.length > 0 ? pendingReminders.map(r => {
+    const overdue = isOverdue(r.scheduledTime);
+    const typeText = REMINDER_TYPE_MAP[r.type] || r.type;
+    const snoozeButtons = `
+      <div class="snooze-buttons">
+        <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="5">5m</button>
+        <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="15">15m</button>
+        <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="30">30m</button>
+        <button class="snooze-btn" data-action="snooze-reminder" data-id="${r.id}" data-minutes="60">1h</button>
+      </div>`;
+    
+    return `<div class="detail-history-item ${overdue ? 'card-overdue' : ''}">
+      <div class="detail-history-header">
+        <span class="badge ${overdue ? 'badge-rejected' : 'badge-new'}">${typeText}</span>
+        <span class="detail-history-date ${overdue ? 'text-danger' : ''}">${formatDateTime(r.scheduledTime)}${overdue ? ' (已过期)' : ''}</span>
+      </div>
+      ${r.note ? `<div class="detail-note">${escapeHtml(r.note)}</div>` : ''}
+      ${snoozeButtons}
+      <div class="card-actions">
+        <button class="btn btn-link" data-action="complete-reminder" data-id="${r.id}">完成</button>
+        <button class="btn btn-link btn-danger-link" data-action="delete-reminder" data-id="${r.id}">删除</button>
+      </div>
+    </div>`;
+  }).join('') : '<div class="detail-note">暂无待处理提醒</div>';
+  
+  const completedRemindersHtml = completedReminders.length > 0 ? completedReminders.map(r => {
+    const typeText = REMINDER_TYPE_MAP[r.type] || r.type;
+    return `<div class="detail-history-item card-completed">
+      <div class="detail-history-header">
+        <span class="badge badge-info">${typeText}</span>
+        <span class="detail-history-date">${formatDateTime(r.scheduledTime)}</span>
+        <span class="text-muted">已完成</span>
+      </div>
+      ${r.note ? `<div class="detail-note">${escapeHtml(r.note)}</div>` : ''}
+    </div>`;
+  }).join('') : '';
+  
+  const history = [];
+  if (candidate.createdAt) {
+    history.push({
+      time: candidate.createdAt,
+      type: '创建',
+      text: `创建候选人档案${candidate.source ? `，来源：${candidate.source}` : ''}`
+    });
+  }
+  if (candidate.statusChangeReason && candidate.status) {
+    history.push({
+      time: candidate.updatedAt || candidate.createdAt,
+      type: candidate.status === 'rejected' ? '淘汰' : '推进',
+      text: candidate.statusChangeReason
+    });
+  }
+  candidateInterviews.forEach(iv => {
+    const result = INTERVIEW_RESULT_MAP[iv.result]?.text || '';
+    history.push({
+      time: iv.date,
+      type: '面试',
+      text: `第${iv.round}轮${INTERVIEW_TYPE_MAP[iv.type]?.text || '面试'} · ${result}`
+    });
+  });
+  history.sort((a, b) => new Date(b.time) - new Date(a.time));
+  
+  const historyHtml = history.length > 0 ? history.map(h => `
+    <div class="detail-history-item">
+      <div class="detail-history-header">
+        <span class="badge ${h.type === '淘汰' ? 'badge-rejected' : h.type === '面试' ? 'badge-interview' : h.type === '推进' ? 'badge-advanced' : 'badge-info'}">${h.type}</span>
+        <span class="detail-history-date">${formatDateTime(h.time)}</span>
+      </div>
+      <div class="detail-note">${escapeHtml(h.text)}</div>
+    </div>
+  `).join('') : '<div class="detail-note">暂无历史记录</div>';
+  
+  const nameEl = document.querySelector('[data-hook="detail-name"]');
+  const statusEl = document.querySelector('[data-hook="detail-status"]');
+  const positionEl = document.querySelector('[data-hook="detail-position"]');
+  const companyEl = document.querySelector('[data-hook="detail-company"]');
+  const contactInfoEl = document.querySelector('[data-hook="detail-contact-info"]');
+  const skillsEl = document.querySelector('[data-hook="detail-skills"]');
+  const salaryEl = document.querySelector('[data-hook="detail-salary"]');
+  const sourceEl = document.querySelector('[data-hook="detail-source"]');
+  const linksEl = document.querySelector('[data-hook="detail-links"]');
+  const phoneScreenEl = document.querySelector('[data-hook="detail-phone-screen"]');
+  const interviewsSectionEl = document.querySelector('[data-hook="detail-interviews"]');
+  const pendingRemindersEl = document.querySelector('[data-hook="detail-pending-reminders"]');
+  const completedRemindersEl = document.querySelector('[data-hook="detail-completed-reminders"]');
+  const historyEl = document.querySelector('[data-hook="detail-history"]');
+  
+  if (nameEl) nameEl.textContent = candidate.name || '';
+  if (statusEl) { statusEl.textContent = status.text; statusEl.className = `badge ${status.class}`; }
+  if (positionEl) positionEl.textContent = pos ? pos.title : '未关联职位';
+  if (companyEl) companyEl.textContent = candidate.currentCompany || '';
+  if (salaryEl) salaryEl.textContent = candidate.expectedSalary || '-';
+  if (sourceEl) sourceEl.textContent = candidate.source || '-';
+  if (skillsEl) skillsEl.innerHTML = skillsHtml || '<span class="text-muted">暂无技能标签</span>';
+  if (linksEl) linksEl.innerHTML = linksHtml || '<div class="detail-info-item"><span class="detail-info-label">🔗 链接</span><span class="detail-info-value text-muted">暂无链接</span></div>';
+  if (phoneScreenEl) phoneScreenEl.textContent = candidate.phoneScreenResult || '暂无电话筛选记录';
+  
+  let contactHtml = '';
+  if (candidate.email) {
+    contactHtml += `<div class="detail-info-item"><span class="detail-info-label">📧 邮箱</span><a href="mailto:${escapeHtml(candidate.email)}" class="detail-info-value link">${escapeHtml(candidate.email)}</a></div>`;
+  }
+  if (candidate.phone) {
+    contactHtml += `<div class="detail-info-item"><span class="detail-info-label">📱 电话</span><span class="detail-info-value">${escapeHtml(candidate.phone)}</span></div>`;
+  }
+  if (candidate.wechat) {
+    contactHtml += `<div class="detail-info-item"><span class="detail-info-label">💬 微信</span><span class="detail-info-value">${escapeHtml(candidate.wechat)}</span></div>`;
+  }
+  if (!contactHtml) {
+    contactHtml = '<div class="detail-info-item"><span class="detail-info-label">ℹ️</span><span class="detail-info-value text-muted">暂无联系方式</span></div>';
+  }
+  if (contactInfoEl) contactInfoEl.innerHTML = contactHtml;
+  
+  if (interviewsSectionEl) interviewsSectionEl.innerHTML = interviewsHtml;
+  if (pendingRemindersEl) pendingRemindersEl.innerHTML = pendingRemindersHtml;
+  if (completedRemindersEl) completedRemindersEl.innerHTML = completedRemindersHtml || '<div class="detail-note text-muted">暂无已完成提醒</div>';
+  if (historyEl) historyEl.innerHTML = historyHtml;
 }
 
 document.addEventListener('DOMContentLoaded', init);
